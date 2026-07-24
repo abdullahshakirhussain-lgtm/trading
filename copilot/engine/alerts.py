@@ -11,7 +11,7 @@ import time
 
 from .. import config, db, fmt
 from ..data import announcements, dexscreener, feargreed, news
-from . import narrative, paper, rugfilter
+from . import narrative, paper, read, rugfilter
 
 log = logging.getLogger(__name__)
 
@@ -217,6 +217,21 @@ async def poll_radar(market, send) -> None:
                              f"<i>Data, not a recommendation — most memes still go to zero.</i>",
                              24 * 3600)
     db.kv_set("last_poll_radar", str(int(time.time())))
+
+
+# --- named conditions: record transitions, alert on the notable ones ---
+
+async def poll_conditions(market, send) -> None:
+    for name in read.record_fires():
+        c = next((x for x in read._evaluate() if x["name"] == name), None)
+        if not c:
+            continue
+        await _alert(send, "condition", name,
+                     f"🔔 <b>Condition now true: {fmt.esc(name)}</b>\n"
+                     f"{fmt.esc(c['meaning'])}\n"
+                     f"<i>Unvalidated pattern — no backtest stands behind this. "
+                     f"It describes positioning, not what to do.</i>",
+                     12 * 3600)
 
 
 # --- equity snapshots (hourly, so the dashboard curve has shape) ---

@@ -89,6 +89,25 @@
   .tag { color: var(--muted); font-size: 11.5px; }
   .fresh { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); }
   .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .summary { font-size: 15.5px; font-weight: 600; margin-bottom: 12px;
+             line-height: 1.45; }
+  .conds { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .cond { border: 1px solid var(--border); border-radius: 8px; padding: 8px 11px;
+          font-size: 12.5px; max-width: 100%; }
+  .cond.on { border-color: var(--warning); }
+  .cond .cn { font-weight: 650; }
+  .cond .cm { color: var(--text-secondary); margin-top: 3px; line-height: 1.4; }
+  .cond .cf { color: var(--muted); font-size: 11.5px; margin-top: 4px;
+              font-variant-numeric: tabular-nums; }
+  .reading { display: grid; grid-template-columns: 132px 1fr; gap: 12px;
+             padding: 9px 0; border-top: 1px solid var(--grid); font-size: 13.5px; }
+  .reading .rm { color: var(--text-primary); font-weight: 600; }
+  .reading .rv { color: var(--text-secondary); font-variant-numeric: tabular-nums;
+                 font-size: 12.5px; }
+  .reading .rt { color: var(--text-secondary); line-height: 1.5; }
+  .disclaimer { margin-top: 14px; padding-top: 11px; border-top: 1px solid var(--grid);
+                color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+  @media (max-width: 620px) { .reading { grid-template-columns: 1fr; gap: 2px; } }
   #tip { position: fixed; pointer-events: none; opacity: 0; transition: opacity .1s;
          background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
          padding: 8px 10px; font-size: 12.5px; font-variant-numeric: tabular-nums;
@@ -104,6 +123,16 @@
   </div>
   <div class="fresh" id="freshness"></div>
 </header>
+
+<div class="card" id="readcard">
+  <h2>Market read</h2>
+  <div id="summary" class="summary"></div>
+  <div id="conditions" class="conds"></div>
+  <div id="readings"></div>
+  <div class="disclaimer">Descriptive only. These describe crowd positioning and
+    risk — not what to do. No condition here has been backtested; the fire counts
+    exist so you can check them against your own record later.</div>
+</div>
 
 <div class="tiles" id="tiles"></div>
 
@@ -330,8 +359,27 @@ function table(el, cols, rows, emptyMsg) {
   }</tbody></table>`;
 }
 
+function marketRead(d) {
+  $("summary").textContent = d.market_summary || "";
+  const days = d.conditions_meta?.tracking_days ?? 0;
+  const conds = (d.conditions || []).slice().sort((a, b) => b.active - a.active);
+  $("conditions").innerHTML = conds.map(c => `
+    <div class="cond ${c.active ? "on" : ""}">
+      <div class="cn">${c.active ? "🔔" : "○"} ${esc(c.name)}</div>
+      ${c.active ? `<div class="cm">${esc(c.meaning)}</div>` : ""}
+      <div class="cf">fired ${c.fires}× in ${days.toFixed(0)}d${
+        c.last_fired ? " · last " + ago(c.last_fired) : ""} · UNVALIDATED</div>
+    </div>`).join("");
+  $("readings").innerHTML = (d.readings || []).map(r => `
+    <div class="reading">
+      <div><div class="rm">${esc(r.metric)}</div><div class="rv">${esc(r.value)}</div></div>
+      <div class="rt">${esc(r.text)}</div>
+    </div>`).join("");
+}
+
 function render(d) {
   const o = d.overview;
+  marketRead(d);
   tiles(o); freshness(o.freshness_min);
   $("subtitle").textContent =
     `alerts + analysis only · never executes · updated ${new Date().toLocaleTimeString()}`;

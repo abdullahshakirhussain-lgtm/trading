@@ -2,7 +2,7 @@
 import time
 
 from .. import config, db
-from ..engine import narrative, paper
+from ..engine import narrative, paper, read
 
 
 def latest_prices() -> dict[str, float]:
@@ -117,7 +117,12 @@ def watchlist_table() -> list[dict]:
 
 
 def snapshot() -> dict:
+    conds = read.conditions()
     return {
+        "readings": read.readings(),
+        "conditions": conds["conditions"],
+        "conditions_meta": {"tracking_days": conds["tracking_days"]},
+        "market_summary": read.summary(),
         "overview": overview(),
         "equity_curve": equity_curve(),
         "positions": positions(),

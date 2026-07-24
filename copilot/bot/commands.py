@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 from .. import config, db, fmt
 from ..data import feargreed
 from ..data.binance import norm_symbol
-from ..engine import narrative, paper
+from ..engine import narrative, paper, read
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +25,9 @@ HELP = """<b>crypto co-pilot</b> — alerts &amp; analysis only, never execution
 <b>Watchlist &amp; alerts</b>
 /watch SYM · /unwatch SYM · /watchlist
 /alert SYM above|below PRICE · /alerts · /delalert ID
+
+<b>Read the market</b>
+/read — what funding, sentiment &amp; vol currently imply
 
 <b>Radar &amp; news</b>
 /radar — memecoin radar with rug-filter verdicts
@@ -257,6 +260,26 @@ async def news_cmd(update: Update, context) -> None:
         tag = f" <i>[{fmt.esc(r['narratives'])}]</i>" if r["narratives"] else ""
         lines.append(f"• {fmt.esc(r['title'])}{tag}\n  {fmt.esc(r['source'])} — {r['url']}")
     await _reply(update, "<b>Latest headlines</b>\n" + "\n".join(lines))
+
+
+@handler
+async def read_cmd(update: Update, context) -> None:
+    """Plain-English reading of the current regime + which conditions are true."""
+    lines = ["<b>Market read</b>", fmt.esc(read.summary()), ""]
+    for r in read.readings():
+        lines.append(f"<b>{fmt.esc(r['metric'])}</b>: {fmt.esc(r['value'])}\n"
+                     f"{fmt.esc(r['text'])}")
+    data = read.conditions()
+    active = [c for c in data["conditions"] if c["active"]]
+    if active:
+        lines.append("\n<b>Conditions currently true</b>")
+        for c in active:
+            fires = c["fires"]
+            lines.append(f"🔔 {fmt.esc(c['name'])} — fired {fires}x in "
+                         f"{data['tracking_days']:.0f} days of tracking")
+    lines.append("\n<i>Descriptive only. None of these are backtested, and none "
+                 "of them tell you to buy or sell.</i>")
+    await _reply(update, "\n".join(lines))
 
 
 @handler

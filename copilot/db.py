@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS positions (
     PRIMARY KEY (symbol, bucket, is_real)
 );
 CREATE TABLE IF NOT EXISTS equity_history (ts INTEGER, equity REAL, btc_bench REAL);
+CREATE TABLE IF NOT EXISTS condition_fires (name TEXT, ts INTEGER);
+CREATE INDEX IF NOT EXISTS idx_cond_fires ON condition_fires(name, ts);
 """
 
 

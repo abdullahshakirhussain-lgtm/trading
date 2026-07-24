@@ -94,6 +94,7 @@ COMMANDS = {
     "alert": commands.alert, "alerts": commands.alerts_cmd,
     "delalert": commands.delalert,
     "radar": commands.radar, "news": commands.news_cmd, "heat": commands.heat,
+    "read": commands.read_cmd,
     "buy": commands.buy, "sell": commands.sell, "close": commands.close,
     "positions": commands.positions_cmd, "stats": commands.stats,
     "brief": commands.brief, "check": commands.check, "review": commands.review,
@@ -112,6 +113,7 @@ JOBS = [
     (alerts.poll_fng, config.FNG_INTERVAL, 120),
     (alerts.poll_volatility, config.VOL_INTERVAL, 300),
     (alerts.snapshot_equity, 3600, 150),
+    (alerts.poll_conditions, 900, 180),
 ]
 
 
