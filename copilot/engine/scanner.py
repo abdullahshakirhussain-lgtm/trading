@@ -278,24 +278,19 @@ async def scan(market) -> list[dict]:
     # contaminate this cycle's own comparison.
     _write_snapshots(rows)
 
-    candidates = []
+    # Leaderboard, not a gate: rank the WHOLE tradable universe by how much it's
+    # moving (recent short-window move weighted over the 24h move, fresh listings
+    # boosted) and always take the top CAP. That keeps the board/'/hot' populated
+    # with the current top movers even in a calm market — the alert thresholds only
+    # decide what gets *pushed* (see _should_push), never what's shown.
     for r in rows:
-        tier, is_new = r["tier"], r["is_new"]
-        factor = config.SCAN_NEW_LISTING_FACTOR if is_new else 1.0
         prior = _prior_price(r["symbol"], config.SCAN_SHORT_WINDOW_S)
-        short_pct = ((r["price"] / prior - 1) * 100) if prior else None
-        chg24 = r.get("chg24")
-        hit = (
-            (short_pct is not None and abs(short_pct) >= config.SCAN_MOM_5M[tier] * factor)
-            or (chg24 is not None and abs(chg24) >= config.SCAN_CHG24[tier] * factor)
-            or is_new
-        )
-        if hit:
-            r["_rank"] = abs(short_pct or 0) + abs(chg24 or 0) / 4 + (50 if is_new else 0)
-            candidates.append(r)
+        r["short_pct"] = ((r["price"] / prior - 1) * 100) if prior else None
+        r["_rank"] = (abs(r["short_pct"] or 0) * 1.5
+                      + abs(r.get("chg24") or 0) / 3
+                      + (50 if r["is_new"] else 0))
 
-    candidates.sort(key=lambda r: r["_rank"], reverse=True)
-    candidates = candidates[:config.SCAN_CANDIDATE_CAP]
+    candidates = sorted(rows, key=lambda r: r["_rank"], reverse=True)[:config.SCAN_CANDIDATE_CAP]
 
     # Funding for perp context — one call covers every perp.
     try:
