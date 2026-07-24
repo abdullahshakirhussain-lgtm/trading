@@ -1,27 +1,28 @@
 # crypto co-pilot
 
-Personal crypto market co-pilot: **alerts + analysis only, never execution.**
-Watches Binance, memecoin launches, and crypto news; sends Telegram alerts;
-maintains a paper-trading track record (fake $10k, core vs degen buckets).
-Runs locally on Windows for ~$0/month.
+Personal **Binance USD-M futures** co-pilot: **alerts + analysis only, never execution.**
+Watches perps, positioning and crypto news; sends Telegram alerts; maintains a
+futures paper-trading track record (fake $10k, long/short + leverage, core vs degen
+buckets). Runs locally on Windows for ~$0/month.
 
 ## What it does
 
 - **Watchlist alerts** — price crosses, funding-rate extremes, volatility regime
-  changes, big movers, Fear & Greed extremes
-- **Listing radar** — Binance new-listing announcements (polled every 90s;
-  minutes-sensitive) + reliable new-symbol detection via exchangeInfo diff
-- **Explosive-mover scanner** — Binance spot **+ USD-M perps** swept every ~2.5 min
-  for small/new-cap coins igniting *now*: short-window momentum (5m/15m/1h) backed by
-  a volume surge (RVOL), tiered micro/small/mid, with fresh listings on a lower bar.
-  This is the layer that catches the ZAMA/UAI-type day-trading movers the majors
-  watchlist and the DEX radar both miss. Pushed to Telegram in real time; `/hot` on demand
-- **Memecoin radar** — DexScreener trending/boosted tokens on Solana + BSC,
-  each run through a rug filter (liquidity, age, vol/liq sanity, one-sided flow)
+  changes, big perp movers, Fear & Greed extremes
+- **Positioning signals** — **open-interest surges** (positioning building),
+  **long/short account ratio** extremes (crowd one-sided), and a **liquidation-cascade**
+  detector (sharp price move + open-interest drop = forced closes)
+- **Explosive-mover scanner** — every USD-M perp swept ~2.5 min for small/new-cap
+  coins igniting *now*: short-window momentum (5m/15m/1h) backed by a volume surge
+  (RVOL), tiered micro/small/mid, fresh listings on a lower bar. Catches the
+  ZAMA/UAI-type day-trading movers the majors watchlist misses. `/hot` on demand
+- **Listing radar** — Binance new-perp announcements + new-symbol detection via
+  exchangeInfo diff
 - **News & narrative heat** — free RSS feeds tagged by narrative; alerts when a
   narrative accelerates vs its 7-day baseline (this is what front-runs rotations)
-- **Paper trading** — fake $10k with honest fees + slippage, `core` vs `degen`
-  buckets (degen capped at 20%), benchmarked against just-holding-BTC
+- **Futures paper trading** — fake $10k, `/long` and `/short` with leverage, honest
+  fees + slippage + funding accrual + liquidation, `core` vs `degen` buckets (degen
+  capped at 20% of equity), benchmarked against just-holding-BTC
 - **LLM co-pilot** (optional) — daily brief, `/check` devil's-advocate on your
   trade thesis, weekly behavioral review of the journal
 
@@ -116,14 +117,27 @@ Creates a "crypto-copilot" task that starts the bot at logon. Remove with
 
 - No Binance API key, no wallet, no order execution — the tool surfaces and
   scores; you place every trade manually.
-- No presale/ICO tracking (scam-dense, no analyzable data).
-- Rug filter shows SKIPped candidates with reasons rather than hiding them.
+- Futures-only: all market data is USD-M perps; no spot, no DEX tokens.
+- The paper engine is a simplified isolated-margin model (flat maintenance-margin
+  rate, funding prorated from the 8h rate) — a track record, not an exchange.
 - Success metric: the paper record vs hold-BTC, per bucket — not vibes.
+
+## Trading commands
+
+```
+/long SYM MARGIN [10x] [degen] [real]    open a long (MARGIN in USDT)
+/short SYM MARGIN [10x] [degen] [real]   open a short
+/close SYM [real]                        close it
+/positions · /stats [real]               track record
+```
+
+`10x` sets leverage (default 5x, cap 25x). `degen` tags high-risk sizing; `real`
+logs an actual trade to the journal instead of touching paper cash.
 
 ## Files
 
-- `copilot/data/` — Binance (ccxt public), DexScreener, announcements, RSS, F&G
-- `copilot/engine/` — alert rules, narrative heat, rug filter, mover scanner, paper trading
+- `copilot/data/` — Binance USD-M (ccxt public + futures/data endpoints), announcements, RSS, F&G
+- `copilot/engine/` — alert rules, narrative heat, mover scanner, futures paper trading
 - `copilot/bot/` — Telegram commands + job scheduling
 - `copilot/llm/` — Claude Haiku brief / thesis-check / review (optional)
 - `data/copilot.db` — SQLite (all state; delete to reset)

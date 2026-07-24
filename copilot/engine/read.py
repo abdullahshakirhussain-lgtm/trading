@@ -29,6 +29,19 @@ def _avg_watchlist_funding() -> float | None:
     return sum(rates) / len(rates) if rates else None
 
 
+def _avg_watchlist_ls() -> float | None:
+    """Average long/short account ratio across the watchlist (from poll_long_short)."""
+    vals = []
+    for sym in db.watchlist():
+        v = db.kv_get(f"ls:{sym}")
+        if v:
+            try:
+                vals.append(float(v))
+            except ValueError:
+                pass
+    return sum(vals) / len(vals) if vals else None
+
+
 def _btc_vol_ratio() -> float | None:
     """24h realized vol vs the 14-day baseline. Needs a few days of uptime."""
     now = int(time.time())
@@ -89,6 +102,23 @@ def readings() -> list[dict]:
         out.append({"metric": "Fear & Greed",
                     "value": f"{n} ({db.kv_get('fng_label','')})", "text": t})
 
+    ls = _avg_watchlist_ls()
+    if ls is None:
+        out.append({"metric": "Long/short", "value": "—",
+                    "text": "No positioning data yet."})
+    else:
+        if ls >= config.LS_EXTREME:
+            t = ("Top-trader accounts are heavily net long — one-sided positioning. "
+                 "This is the fuel for downside flushes when it unwinds.")
+        elif ls <= config.LS_EXTREME_LOW:
+            t = ("Accounts are heavily net short — one-sided the other way. "
+                 "This is where short squeezes start.")
+        elif ls > 1:
+            t = "Crowd leans long, not stretched."
+        else:
+            t = "Crowd leans short, not stretched."
+        out.append({"metric": "Long/short", "value": f"{ls:.2f} (avg)", "text": t})
+
     r = _btc_vol_ratio()
     if r is None:
         out.append({"metric": "BTC volatility", "value": "—",
@@ -123,6 +153,7 @@ def readings() -> list[dict]:
 
 def _evaluate() -> list[dict]:
     f = _avg_watchlist_funding()
+    ls = _avg_watchlist_ls()
     fng = db.kv_get("fng_value")
     fng = int(fng) if fng else None
     vol = _btc_vol_ratio()
@@ -140,6 +171,11 @@ def _evaluate() -> list[dict]:
         cond("crowded short", f is not None and f < -config.FUNDING_EXTREME,
              "Shorts paying longs heavily. One-sided the other way; squeezes "
              "start from here."),
+        cond("crowd long", ls is not None and ls >= config.LS_EXTREME,
+             "Top-trader accounts net heavily long. One-sided; downside flushes "
+             "accelerate when it unwinds."),
+        cond("crowd short", ls is not None and ls <= config.LS_EXTREME_LOW,
+             "Accounts net heavily short. Short squeezes start from here."),
         cond("extreme fear", fng is not None and fng <= config.FNG_LOW,
              "Sentiment washed out. Sellers may be exhausted — or early."),
         cond("extreme greed", fng is not None and fng >= config.FNG_HIGH,

@@ -6,6 +6,16 @@ def esc(s: str) -> str:
     return html.escape(str(s), quote=False)
 
 
+def sym(s: str) -> str:
+    """Render a ccxt perp symbol the way Binance Futures shows it.
+
+    'BTC/USDT:USDT' -> 'BTCUSDT'; 'BTC/USDT' -> 'BTCUSDT'; already-clean passes through.
+    """
+    if not s:
+        return "?"
+    return str(s).split(":")[0].replace("/", "")
+
+
 def money(x: float) -> str:
     if x is None:
         return "?"

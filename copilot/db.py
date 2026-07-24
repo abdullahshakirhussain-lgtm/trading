@@ -39,22 +39,21 @@ CREATE TABLE IF NOT EXISTS known_symbols (
     PRIMARY KEY (market, symbol)
 );
 CREATE TABLE IF NOT EXISTS announcements (id TEXT PRIMARY KEY, ts INTEGER, title TEXT, url TEXT);
-CREATE TABLE IF NOT EXISTS radar (
-    chain TEXT, token_addr TEXT, first_seen INTEGER, last_seen INTEGER,
-    symbol TEXT, name TEXT, verdict TEXT, reasons TEXT,
-    liq_usd REAL, vol24 REAL, age_h REAL, price_usd REAL, url TEXT,
-    PRIMARY KEY (chain, token_addr)
+-- Futures paper account (isolated-margin, long+short+leverage). One position per
+-- (symbol, is_real) in one-way mode; side = 'long' | 'short'.
+CREATE TABLE IF NOT EXISTS fut_positions (
+    symbol TEXT, is_real INTEGER, side TEXT, bucket TEXT,
+    qty REAL, entry REAL, leverage REAL, margin REAL, liq_price REAL,
+    funding_accrued REAL DEFAULT 0, opened_ts INTEGER, last_funding_ts INTEGER,
+    PRIMARY KEY (symbol, is_real)
 );
-CREATE TABLE IF NOT EXISTS paper_trades (
+CREATE TABLE IF NOT EXISTS fut_trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts INTEGER, symbol TEXT, side TEXT, usd REAL, qty REAL, price REAL,
-    fee REAL, bucket TEXT, is_real INTEGER DEFAULT 0, realized_pnl REAL
+    ts INTEGER, symbol TEXT, side TEXT, action TEXT, bucket TEXT,
+    margin REAL, notional REAL, qty REAL, entry REAL, exit REAL,
+    leverage REAL, fee REAL, funding REAL, realized_pnl REAL, is_real INTEGER DEFAULT 0
 );
-CREATE TABLE IF NOT EXISTS positions (
-    symbol TEXT, bucket TEXT, is_real INTEGER,
-    qty REAL, avg_cost REAL,
-    PRIMARY KEY (symbol, bucket, is_real)
-);
+CREATE INDEX IF NOT EXISTS idx_fut_trades_ts ON fut_trades(ts);
 CREATE TABLE IF NOT EXISTS equity_history (ts INTEGER, equity REAL, btc_bench REAL);
 CREATE TABLE IF NOT EXISTS condition_fires (name TEXT, ts INTEGER);
 CREATE INDEX IF NOT EXISTS idx_cond_fires ON condition_fires(name, ts);
@@ -79,6 +78,11 @@ def init() -> None:
     with _lock:
         _conn.executescript(SCHEMA)
         _conn.commit()
+    # Migrate any spot-format watchlist rows (BASE/USDT) to USD-M perp (BASE/USDT:USDT).
+    # Idempotent: only touches rows that aren't already perp symbols.
+    execute("UPDATE OR IGNORE watchlist SET symbol = symbol || ':USDT' "
+            "WHERE symbol LIKE '%/USDT'")
+    execute("DELETE FROM watchlist WHERE symbol LIKE '%/USDT'")  # drop any dup left behind
     # Seed watchlist on first run only
     if not fetchall("SELECT 1 FROM watchlist LIMIT 1"):
         for sym in config.DEFAULT_WATCHLIST:

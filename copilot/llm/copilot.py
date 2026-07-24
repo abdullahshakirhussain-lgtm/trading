@@ -62,17 +62,19 @@ async def _ask(prompt: str, max_tokens: int = 700) -> str:
 # --- context assembly (all from local data, cheap) ---
 
 async def _market_context(market) -> str:
-    lines = []
+    lines = ["(USD-M perpetual futures)"]
     prices = await market.watchlist_prices()
     for sym, px in sorted(prices.items()):
         t = await market.ticker(sym)
         pct = f" ({t['pct24h']:+.1f}% 24h)" if t and t.get("pct24h") is not None else ""
-        lines.append(f"{sym}: {px}{pct}")
+        ls = db.kv_get(f"ls:{sym}")
+        ls_s = f" [L/S {float(ls):.2f}]" if ls else ""
+        lines.append(f"{fmt.sym(sym)}: {px}{pct}{ls_s}")
     rates = await market.funding_rates()
     watch_bases = [w.split("/")[0] for w in db.watchlist()]
     for s, r in sorted(rates.items()):
         if any(s.startswith(b + "/") for b in watch_bases):
-            lines.append(f"funding {s}: {r * 100:+.4f}%/8h")
+            lines.append(f"funding {fmt.sym(s)}: {r * 100:+.4f}%/8h")
     fng_v, fng_l = db.kv_get("fng_value"), db.kv_get("fng_label")
     if fng_v:
         lines.append(f"Fear&Greed: {fng_v} ({fng_l})")
@@ -91,17 +93,19 @@ async def _market_context(market) -> str:
 def _journal_context(days: int = 14) -> str:
     cutoff = int(time.time()) - days * 86400
     rows = db.fetchall(
-        "SELECT ts, symbol, side, usd, price, fee, bucket, is_real, realized_pnl "
-        "FROM paper_trades WHERE ts > ? ORDER BY ts", (cutoff,))
+        "SELECT ts, symbol, side, action, bucket, margin, leverage, fee, funding, "
+        "is_real, realized_pnl FROM fut_trades WHERE ts > ? ORDER BY ts", (cutoff,))
     if not rows:
         return "no trades in the journal yet"
     lines = []
     for r in rows:
         kind = "REAL" if r["is_real"] else "paper"
         pnl = f" pnl={r['realized_pnl']:+.2f}" if r["realized_pnl"] is not None else ""
+        fund = f" funding={r['funding']:+.2f}" if r["funding"] else ""
         day = time.strftime("%a %d %b %H:%M", time.localtime(r["ts"]))
-        lines.append(f"{day} {kind} {r['side']} {r['symbol']} ${r['usd']:.0f} "
-                     f"[{r['bucket']}] fee={r['fee']:.2f}{pnl}")
+        lines.append(f"{day} {kind} {r['action']} {r['side']} {fmt.sym(r['symbol'])} "
+                     f"margin ${r['margin']:.0f} {r['leverage']:.0f}x [{r['bucket']}] "
+                     f"fee={r['fee']:.2f}{fund}{pnl}")
     return "\n".join(lines)
 
 

@@ -157,13 +157,8 @@
 </div>
 
 <div class="card">
-  <h2>Hot movers — live scan · small/new-cap (spot + perps)</h2>
+  <h2>Hot movers — live scan · small/new-cap perps</h2>
   <div class="scroll" id="hot"></div>
-</div>
-
-<div class="card">
-  <h2>Memecoin radar — data, not recommendations</h2>
-  <div class="scroll" id="radar"></div>
 </div>
 
 <div class="grid2">
@@ -204,6 +199,7 @@ const fmtCompact = v => v == null ? "—" :
 const cls = v => v == null ? "" : v > 0 ? "up" : v < 0 ? "down" : "";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c =>
   ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const symLabel = s => String(s ?? "").split(":")[0].replace("/", "");  // BTC/USDT:USDT -> BTCUSDT
 const ago = ts => {
   const m = Math.round((Date.now()/1000 - ts) / 60);
   if (m < 1) return "just now";
@@ -237,8 +233,8 @@ function tiles(o) {
 }
 
 function freshness(f) {
-  const rows = [["prices", f.prices], ["funding", f.funding], ["news", f.news],
-                ["radar", f.radar], ["scan", f.scan], ["listings", f.listings]];
+  const rows = [["prices", f.prices], ["funding", f.funding], ["scan", f.scan],
+                ["OI", f.oi], ["L/S", f.ls], ["positions", f.positions]];
   $("freshness").innerHTML = rows.map(([k, v]) => {
     const stale = v == null || v > 60;
     const color = v == null ? "var(--muted)" : stale ? "var(--warning)" : "var(--good)";
@@ -391,23 +387,27 @@ function render(d) {
   chart(d.equity_curve, o.start_cash);
 
   table("positions", [
-    {h: "Symbol", f: r => `${esc(r.symbol)} <span class="badge b-${r.bucket}">${
-      esc(r.bucket)}</span>${r.kind === "real"
+    {h: "Symbol", f: r => `${esc(symLabel(r.symbol))} <span class="badge ${
+      r.side === "long" ? "up" : "down"}">${esc(r.side)}</span> <span class="badge b-${
+      r.bucket}">${esc(r.bucket)}</span>${r.kind === "real"
         ? ' <span class="badge">real</span>' : ""}`},
-    {h: "Qty", num: true, f: r => r.qty.toPrecision(4)},
-    {h: "Avg cost", num: true, f: r => fmtPx(r.avg_cost)},
-    {h: "Price", num: true, f: r => fmtPx(r.price)},
-    {h: "Value", num: true, f: r => fmtUsd(r.value)},
-    {h: "P&L", num: true, f: r => `<span class="${cls(r.pnl)}">${
-      r.pnl == null ? "—" : fmtUsd(r.pnl) + " (" + fmtPct(r.pnl_pct) + ")"}</span>`},
-  ], d.positions, "No open positions. Use /buy in Telegram to start the record.");
+    {h: "Lev", num: true, f: r => r.leverage ? r.leverage.toFixed(0) + "x" : "—"},
+    {h: "Entry", num: true, f: r => fmtPx(r.entry)},
+    {h: "Mark", num: true, f: r => fmtPx(r.mark)},
+    {h: "Liq", num: true, f: r => fmtPx(r.liq)},
+    {h: "Margin", num: true, f: r => fmtUsd(r.margin)},
+    {h: "uP&L", num: true, f: r => `<span class="${cls(r.upnl)}">${
+      r.upnl == null ? "—" : fmtUsd(r.upnl) + (r.roe == null ? "" : " (" + fmtPct(r.roe) + ")")}</span>`},
+  ], d.positions, "No open positions. Use /long or /short in Telegram to start the record.");
 
   table("watchlist", [
-    {h: "Symbol", f: r => esc(r.symbol)},
+    {h: "Symbol", f: r => esc(symLabel(r.symbol))},
     {h: "Price", num: true, f: r => fmtPx(r.price)},
     {h: "Funding /8h", num: true, f: r => r.funding == null ? "—"
       : `<span class="${Math.abs(r.funding) >= 0.0005 ? "down" : ""}">${
         (r.funding * 100).toFixed(4)}%</span>`},
+    {h: "L/S", num: true, f: r => r.ls == null ? "—" : r.ls.toFixed(2)},
+    {h: "OI", num: true, f: r => fmtCompact(r.oi)},
   ], d.watchlist, "Watchlist is empty.");
 
   table("hot", [
@@ -427,26 +427,15 @@ function render(d) {
   ], d.hot, "Scanner board is empty right now — it refreshes every scan cycle "
      + "(~2.5 min) and needs a couple of minutes of warm-up after a redeploy.");
 
-  table("radar", [
-    {h: "", f: r => `<span class="badge b-${r.verdict === "PASS" ? "pass" : "skip"}">${
-      r.verdict === "PASS" ? "✓ PASS" : "⚠ SKIP"}</span>`},
-    {h: "Token", f: r => r.url
-      ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${
-          esc(r.symbol)}</a>` : esc(r.symbol)},
-    {h: "Chain", f: r => esc(r.chain)},
-    {h: "Liquidity", num: true, f: r => fmtCompact(r.liq_usd)},
-    {h: "Vol 24h", num: true, f: r => fmtCompact(r.vol24)},
-    {h: "Age", num: true, f: r => r.age_h == null ? "—" : Math.round(r.age_h) + "h"},
-    {h: "Why skipped", f: r => `<span class="tag">${esc(r.reasons || "—")}</span>`},
-  ], d.radar, "Radar empty — no trending candidates in the last 48h.");
-
   table("trades", [
     {h: "When", f: r => `<span class="tag">${ago(r.ts)}</span>`},
-    {h: "Trade", f: r => `${r.side === "buy" ? "🟢" : "🔴"} ${esc(r.side)} ${esc(r.symbol)}
+    {h: "Trade", f: r => `${r.action === "open" ? (r.side === "long" ? "🟢" : "🔴")
+      : (r.action === "liquidation" ? "💥" : "✅")} ${esc(r.action)} ${esc(r.side)}
+      ${esc(symLabel(r.symbol))} <span class="tag">${r.leverage ? r.leverage.toFixed(0) + "x" : ""}</span>
       <span class="badge b-${r.bucket}">${esc(r.bucket)}</span>${
       r.is_real ? ' <span class="badge">real</span>' : ""}`},
-    {h: "Size", num: true, f: r => fmtUsd(r.usd)},
-    {h: "Price", num: true, f: r => fmtPx(r.price)},
+    {h: "Margin", num: true, f: r => fmtUsd(r.margin)},
+    {h: "Entry/Exit", num: true, f: r => fmtPx(r.action === "open" ? r.entry : r.exit)},
     {h: "Fee", num: true, f: r => fmtUsd(r.fee)},
     {h: "Realized", num: true, f: r => r.realized_pnl == null ? "—"
       : `<span class="${cls(r.realized_pnl)}">${fmtUsd(r.realized_pnl)}</span>`},

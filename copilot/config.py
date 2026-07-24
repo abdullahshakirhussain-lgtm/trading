@@ -40,7 +40,8 @@ TIMEZONE = os.getenv("TIMEZONE", "Asia/Colombo")
 BRIEF_HOUR = _i("BRIEF_HOUR", 8)  # local hour for the daily LLM brief
 
 # --- Watchlist (seed; managed at runtime via /watch) ---
-DEFAULT_WATCHLIST = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+# USD-M perpetuals in ccxt form (BASE/USDT:USDT). Displayed as BTCUSDT etc.
+DEFAULT_WATCHLIST = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"]
 
 # --- Poll intervals (seconds) ---
 PRICES_INTERVAL = _i("PRICES_INTERVAL", 120)
@@ -50,8 +51,11 @@ FNG_INTERVAL = _i("FNG_INTERVAL", 3600)
 NEWS_INTERVAL = _i("NEWS_INTERVAL", 900)
 ANNOUNCEMENTS_INTERVAL = _i("ANNOUNCEMENTS_INTERVAL", 90)
 NEW_SYMBOLS_INTERVAL = _i("NEW_SYMBOLS_INTERVAL", 300)
-RADAR_INTERVAL = _i("RADAR_INTERVAL", 600)
 VOL_INTERVAL = _i("VOL_INTERVAL", 900)
+OI_INTERVAL = _i("OI_INTERVAL", 300)          # open-interest surge check
+LS_INTERVAL = _i("LS_INTERVAL", 900)          # long/short ratio poll
+LIQ_INTERVAL = _i("LIQ_INTERVAL", 180)        # liquidation-cascade proxy
+POSITIONS_INTERVAL = _i("POSITIONS_INTERVAL", 60)  # mark-to-market + liquidation check
 
 # --- Alert thresholds ---
 FUNDING_EXTREME = _f("FUNDING_EXTREME", 0.0005)   # |0.05%| per 8h funding = crowded
@@ -62,24 +66,29 @@ FNG_LOW = _i("FNG_LOW", 20)
 FNG_HIGH = _i("FNG_HIGH", 80)
 VOL_SPIKE_RATIO = _f("VOL_SPIKE_RATIO", 2.0)       # 24h realized vol vs 14d baseline
 
-# --- Memecoin radar / rug filter ---
-RADAR_CHAINS = [c.strip() for c in os.getenv("RADAR_CHAINS", "solana,bsc").split(",") if c.strip()]
-RUG_MIN_LIQ_USD = _f("RUG_MIN_LIQ_USD", 25_000)
-RUG_MIN_AGE_H = _f("RUG_MIN_AGE_H", 24)
-RUG_MIN_VOL_LIQ = _f("RUG_MIN_VOL_LIQ", 0.2)   # vol24/liquidity below this = dead
-RUG_MAX_VOL_LIQ = _f("RUG_MAX_VOL_LIQ", 50)    # above this = likely wash trading
+# --- Futures signals (keyless fapi.binance.com/futures/data endpoints) ---
+OI_SURGE_PCT = _f("OI_SURGE_PCT", 8.0)         # latest open interest vs short baseline
+LS_EXTREME = _f("LS_EXTREME", 2.0)             # top-trader long/short account ratio extreme
+LS_EXTREME_LOW = _f("LS_EXTREME_LOW", 0.5)     # inverse extreme (crowd short)
+LIQ_MOVE_PCT = _f("LIQ_MOVE_PCT", 3.0)         # short-window price move for a cascade proxy
+LIQ_OI_DROP_PCT = _f("LIQ_OI_DROP_PCT", 3.0)   # OI drop alongside it = forced closes
+OI_PERIOD = os.getenv("OI_PERIOD", "5m")       # openInterestHist / L-S period
 
-# --- Paper trading ---
+# --- Futures paper trading (isolated-margin model; long + short + leverage) ---
 PAPER_START_CASH = _f("PAPER_START_CASH", 10_000)
-FEE_RATE = _f("FEE_RATE", 0.001)               # Binance taker 0.1%
+FEE_RATE = _f("FEE_RATE", 0.0005)              # Binance USD-M taker 0.05%
 SLIPPAGE_CORE = _f("SLIPPAGE_CORE", 0.0005)    # majors
-SLIPPAGE_DEGEN = _f("SLIPPAGE_DEGEN", 0.01)    # low-liquidity memes: 1%
-DEGEN_CAP = _f("DEGEN_CAP", 0.20)              # max share of equity in degen cost basis
+SLIPPAGE_DEGEN = _f("SLIPPAGE_DEGEN", 0.01)    # thin / small-cap perps: 1%
+DEGEN_CAP = _f("DEGEN_CAP", 0.20)              # max share of equity in degen margin
+FUT_DEFAULT_LEV = _f("FUT_DEFAULT_LEV", 5)     # leverage when none is given
+FUT_MAX_LEV = _f("FUT_MAX_LEV", 25)            # cap on requested leverage
+FUT_MMR = _f("FUT_MMR", 0.005)                 # maintenance-margin rate used for liq price
+FUT_DEGEN_MIN_LEV = _f("FUT_DEGEN_MIN_LEV", 20)  # leverage at/above this counts as degen
 
 # --- Explosive-mover scanner (small/new-cap day-trading radar) ---
-# Scans Binance spot + USD-M perps for igniting moves the majors watchlist and
-# the DEX radar both miss. Keyless. Two stages: a cheap market-wide ticker screen,
-# then OHLCV confirmation on the candidates. See engine/scanner.py.
+# Scans Binance USD-M perps for igniting moves the majors watchlist misses. Keyless.
+# Two stages: a cheap market-wide ticker screen, then OHLCV confirmation on the
+# candidates. See engine/scanner.py.
 SCAN_INTERVAL = _i("SCAN_INTERVAL", 150)          # seconds between full scans (~2.5m)
 SCAN_SHORT_WINDOW_S = _i("SCAN_SHORT_WINDOW_S", 300)  # short-window delta target (5m)
 SCAN_CANDIDATE_CAP = _i("SCAN_CANDIDATE_CAP", 20)  # max OHLCV lookups per scan (rate limit)
@@ -127,6 +136,9 @@ COOLDOWN_VOL = _i("COOLDOWN_VOL", 12 * 3600)
 COOLDOWN_FNG = _i("COOLDOWN_FNG", 12 * 3600)
 COOLDOWN_HEAT = _i("COOLDOWN_HEAT", 12 * 3600)
 COOLDOWN_SCAN = _i("COOLDOWN_SCAN", 2 * 3600)  # per symbol+direction; aggressive = short
+COOLDOWN_OI = _i("COOLDOWN_OI", 6 * 3600)
+COOLDOWN_LS = _i("COOLDOWN_LS", 12 * 3600)
+COOLDOWN_LIQ = _i("COOLDOWN_LIQ", 3 * 3600)
 
 # --- News feeds (all free) ---
 NEWS_FEEDS = {

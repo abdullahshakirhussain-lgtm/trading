@@ -2,7 +2,8 @@
 
 Every job takes (market, send) — `send` is an async callable(text) wired to
 Telegram by the bot layer, or print() in selftest mode. All alerts dedup
-through db.dedup_ok so a persistent condition doesn't spam.
+through db.dedup_ok so a persistent condition doesn't spam. Futures-only:
+symbols are USD-M perps, rendered with fmt.sym for display.
 """
 import json
 import logging
@@ -11,8 +12,8 @@ import statistics
 import time
 
 from .. import config, db, fmt
-from ..data import announcements, dexscreener, feargreed, news
-from . import narrative, paper, read, rugfilter, scanner
+from ..data import announcements, feargreed, news
+from . import narrative, paper, read, scanner
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ async def poll_prices(market, send) -> None:
         if hit:
             db.execute("UPDATE price_alerts SET fired_ts=? WHERE id=?",
                        (int(time.time()), row["id"]))
-            await send(f"🎯 <b>{fmt.esc(row['symbol'])}</b> crossed {row['direction']} "
+            await send(f"🎯 <b>{fmt.esc(fmt.sym(row['symbol']))}</b> crossed {row['direction']} "
                        f"{fmt.price(row['level'])} — now {fmt.price(px)}")
 
 
@@ -59,8 +60,8 @@ async def poll_funding(market, send) -> None:
     for sym, rate in extremes:
         side = "longs paying (crowded long)" if rate > 0 else "shorts paying (crowded short)"
         await _alert(send, "funding", sym,
-                     f"⚡ <b>Funding extreme</b> {fmt.esc(sym)}: {fmt.funding_pct(rate)}/8h — {side}",
-                     config.COOLDOWN_FUNDING)
+                     f"⚡ <b>Funding extreme</b> {fmt.esc(fmt.sym(sym))}: "
+                     f"{fmt.funding_pct(rate)}/8h — {side}", config.COOLDOWN_FUNDING)
 
 
 # --- movers ---
@@ -76,12 +77,12 @@ async def poll_movers(market, send) -> None:
         if base in watch_bases and abs(p) >= config.WATCHLIST_MOVE_PCT:
             direction = "up" if p > 0 else "down"
             await _alert(send, "watch_move", f"{r['symbol']}:{direction}",
-                         f"📈 <b>Watchlist move</b> {fmt.esc(r['symbol'])} {fmt.pct(p)} in 24h "
-                         f"(vol {fmt.compact_usd(r['qvol'])})", config.COOLDOWN_MOVER)
+                         f"📈 <b>Watchlist move</b> {fmt.esc(fmt.sym(r['symbol']))} {fmt.pct(p)} "
+                         f"in 24h (vol {fmt.compact_usd(r['qvol'])})", config.COOLDOWN_MOVER)
         elif abs(p) >= config.MARKET_MOVER_PCT:
             await _alert(send, "mkt_move", f"{r['symbol']}:{'up' if p > 0 else 'down'}",
-                         f"🚀 <b>Big mover</b> {fmt.esc(r['symbol'])} {fmt.pct(p)} in 24h "
-                         f"(vol {fmt.compact_usd(r['qvol'])})", config.COOLDOWN_MOVER * 2)
+                         f"🚀 <b>Big mover</b> {fmt.esc(fmt.sym(r['symbol']))} {fmt.pct(p)} "
+                         f"in 24h (vol {fmt.compact_usd(r['qvol'])})", config.COOLDOWN_MOVER * 2)
 
 
 # --- fear & greed ---
@@ -124,8 +125,8 @@ async def poll_volatility(market, send) -> None:
         rv_base = statistics.pstdev(_returns(baseline))
         if rv_base > 0 and rv_recent / rv_base >= config.VOL_SPIKE_RATIO:
             await _alert(send, "vol", sym,
-                         f"🌊 <b>Volatility spike</b> {fmt.esc(sym)}: 24h realized vol is "
-                         f"{rv_recent / rv_base:.1f}x the 14-day baseline — regime change, "
+                         f"🌊 <b>Volatility spike</b> {fmt.esc(fmt.sym(sym))}: 24h realized vol "
+                         f"is {rv_recent / rv_base:.1f}x the 14-day baseline — regime change, "
                          f"size accordingly", config.COOLDOWN_VOL)
 
 
@@ -163,61 +164,23 @@ async def poll_announcements(market, send) -> None:
     db.kv_set("last_poll_announcements", str(int(time.time())))
 
 
-# --- new tradable symbols via exchangeInfo diff (reliable fallback) ---
+# --- new tradable perps via exchangeInfo diff ---
 
 async def poll_new_symbols(market, send) -> None:
-    for mkt in ("spot", "perp"):
-        symbols = await market.list_symbols(mkt)
-        if not symbols:
-            continue
-        first_run = db.fetchone("SELECT 1 FROM known_symbols WHERE market=? LIMIT 1",
-                                (mkt,)) is None
-        now = int(time.time())
-        for sym in symbols:
-            if db.fetchone("SELECT 1 FROM known_symbols WHERE market=? AND symbol=?", (mkt, sym)):
-                continue
-            db.execute("INSERT OR IGNORE INTO known_symbols(market, symbol, first_seen) "
-                       "VALUES (?,?,?)", (mkt, sym, now))
-            if not first_run and sym.endswith(("/USDT", "/USDT:USDT")):
-                label = "spot pair" if mkt == "spot" else "PERP"
-                await send(f"🆕 <b>New Binance {label} live:</b> {fmt.esc(sym)} — "
-                           f"tradable right now")
-    db.kv_set("last_poll_new_symbols", str(int(time.time())))
-
-
-# --- memecoin radar ---
-
-async def poll_radar(market, send) -> None:
-    candidates = await dexscreener.trending_candidates(config.RADAR_CHAINS)
-    by_chain: dict[str, list[str]] = {}
-    for c in candidates:
-        by_chain.setdefault(c["chain"], []).append(c["addr"])
+    symbols = await market.list_symbols("perp")
+    if not symbols:
+        return
+    first_run = db.fetchone("SELECT 1 FROM known_symbols WHERE market='perp' LIMIT 1") is None
     now = int(time.time())
-    for chain, addrs in by_chain.items():
-        for p in await dexscreener.pair_stats(chain, addrs):
-            verdict, reasons = rugfilter.evaluate(p)
-            existing = db.fetchone("SELECT verdict FROM radar WHERE chain=? AND token_addr=?",
-                                   (chain, p["addr"]))
-            db.execute(
-                "INSERT INTO radar(chain, token_addr, first_seen, last_seen, symbol, name, "
-                "verdict, reasons, liq_usd, vol24, age_h, price_usd, url) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
-                "ON CONFLICT(chain, token_addr) DO UPDATE SET last_seen=excluded.last_seen, "
-                "verdict=excluded.verdict, reasons=excluded.reasons, liq_usd=excluded.liq_usd, "
-                "vol24=excluded.vol24, age_h=excluded.age_h, price_usd=excluded.price_usd",
-                (chain, p["addr"], now, now, p["symbol"], p["name"], verdict,
-                 "; ".join(reasons), p["liq_usd"], p["vol24"], p["age_h"], p["price_usd"],
-                 p["url"]))
-            if verdict == "PASS" and (existing is None or existing["verdict"] != "PASS"):
-                await _alert(send, "radar", f"{chain}:{p['addr']}",
-                             f"👀 <b>Radar: {fmt.esc(p['symbol'])}</b> ({fmt.esc(chain)}) "
-                             f"passed rug filters\n"
-                             f"liq {fmt.compact_usd(p['liq_usd'])} · vol24 "
-                             f"{fmt.compact_usd(p['vol24'])} · age {p['age_h']:.0f}h\n"
-                             f"{p['url']}\n"
-                             f"<i>Data, not a recommendation — most memes still go to zero.</i>",
-                             24 * 3600)
-    db.kv_set("last_poll_radar", str(int(time.time())))
+    for sym in symbols:
+        if db.fetchone("SELECT 1 FROM known_symbols WHERE market='perp' AND symbol=?", (sym,)):
+            continue
+        db.execute("INSERT OR IGNORE INTO known_symbols(market, symbol, first_seen) "
+                   "VALUES ('perp',?,?)", (sym, now))
+        if not first_run and sym.endswith("/USDT:USDT"):
+            await send(f"🆕 <b>New Binance perp live:</b> {fmt.esc(fmt.sym(sym))} — "
+                       f"tradable right now")
+    db.kv_set("last_poll_new_symbols", str(now))
 
 
 # --- explosive-mover scanner (small/new-cap day-trading radar) ---
@@ -248,6 +211,74 @@ async def poll_scan(market, send) -> None:
     db.kv_set("last_poll_scan", str(now))
 
 
+# --- open interest (positioning building) ---
+
+async def poll_open_interest(market, send) -> None:
+    now = int(time.time())
+    for sym in db.watchlist():
+        series = await market.open_interest_hist(sym, limit=12)
+        if len(series) < 4:
+            continue
+        latest = series[-1]
+        db.kv_set(f"oi:{sym}", f"{latest['oi_usd']:.0f}")
+        base = statistics.median([s["oi"] for s in series[:-1]])
+        if base > 0:
+            surge = (latest["oi"] / base - 1) * 100
+            if surge >= config.OI_SURGE_PCT:
+                await _alert(send, "oi", sym,
+                             f"📊 <b>Open interest surging</b> {fmt.esc(fmt.sym(sym))}: "
+                             f"+{surge:.0f}% vs recent baseline (now "
+                             f"{fmt.compact_usd(latest['oi_usd'])}). Positioning building fast — "
+                             f"moves often follow.", config.COOLDOWN_OI)
+    db.kv_set("last_poll_oi", str(now))
+
+
+# --- long/short account ratio (crowd positioning) ---
+
+async def poll_long_short(market, send) -> None:
+    for sym in db.watchlist():
+        ratio = await market.long_short_ratio(sym)
+        if ratio is None:
+            continue
+        db.kv_set(f"ls:{sym}", f"{ratio:.3f}")
+        if ratio >= config.LS_EXTREME:
+            await _alert(send, "ls", f"{sym}:long",
+                         f"⚖️ <b>Crowd heavily long</b> {fmt.esc(fmt.sym(sym))}: long/short "
+                         f"account ratio {ratio:.2f}. One-sided — flushes start from here.",
+                         config.COOLDOWN_LS)
+        elif ratio <= config.LS_EXTREME_LOW:
+            await _alert(send, "ls", f"{sym}:short",
+                         f"⚖️ <b>Crowd heavily short</b> {fmt.esc(fmt.sym(sym))}: long/short "
+                         f"account ratio {ratio:.2f}. One-sided the other way — squeeze fuel.",
+                         config.COOLDOWN_LS)
+    db.kv_set("last_poll_ls", str(int(time.time())))
+
+
+# --- liquidation-cascade proxy (no public liq REST — inferred from price + OI) ---
+
+async def poll_liquidations(market, send) -> None:
+    now = int(time.time())
+    for sym in db.watchlist():
+        series = await market.open_interest_hist(sym, limit=4)
+        if len(series) < 2 or not series[0]["oi"]:
+            continue
+        oi_drop = (series[-1]["oi"] / series[0]["oi"] - 1) * 100
+        rows = db.fetchall(
+            "SELECT price FROM prices WHERE symbol=? AND ts > ? ORDER BY ts",
+            (sym, now - 20 * 60))
+        if len(rows) < 2 or not rows[0]["price"]:
+            continue
+        move = (rows[-1]["price"] / rows[0]["price"] - 1) * 100
+        if abs(move) >= config.LIQ_MOVE_PCT and oi_drop <= -config.LIQ_OI_DROP_PCT:
+            who = "longs" if move < 0 else "shorts"
+            await _alert(send, "liq", sym,
+                         f"💥 <b>Likely liquidation cascade</b> {fmt.esc(fmt.sym(sym))}: "
+                         f"{fmt.pct(move)} with open interest {fmt.pct(oi_drop)} — {who} getting "
+                         f"flushed.\n<i>Inferred from price + OI, not a raw liquidation feed.</i>",
+                         config.COOLDOWN_LIQ)
+    db.kv_set("last_poll_liq", str(now))
+
+
 # --- named conditions: record transitions, alert on the notable ones ---
 
 async def poll_conditions(market, send) -> None:
@@ -263,19 +294,35 @@ async def poll_conditions(market, send) -> None:
                      12 * 3600)
 
 
+# --- open positions: mark-to-market, funding accrual, forced liquidation ---
+
+async def poll_positions(market, send) -> None:
+    held = {p["symbol"] for p in paper.positions(0)} | {p["symbol"] for p in paper.positions(1)}
+    if not held:
+        return
+    marks = await market.marks(held)
+    if not marks:
+        return
+    rates = await market.funding_rates()
+    for is_real in (0, 1):
+        for liq in paper.mark_manage(marks, rates, is_real):
+            tag = "REAL" if is_real else "Paper"
+            await send(f"💥 <b>{tag} LIQUIDATED</b>: {fmt.esc(fmt.sym(liq['symbol']))} "
+                       f"{liq['side']} @ {fmt.price(liq['exit'])}\n"
+                       f"margin ${abs(liq['realized']):,.2f} wiped — position gone.")
+    db.kv_set("last_poll_positions", str(int(time.time())))
+
+
 # --- equity snapshots (hourly, so the dashboard curve has shape) ---
 
 async def snapshot_equity(market, send) -> None:
-    prices = await market.watchlist_prices()
-    btc = prices.get("BTC/USDT") or await market.last_price("BTC/USDT")
+    marks = await market.watchlist_prices()
+    btc = marks.get("BTC/USDT:USDT") or await market.last_price("BTC/USDT:USDT")
     paper.ensure_init(btc)
-    # include held symbols outside the watchlist so equity is valued correctly
-    held = {p["symbol"] for p in paper.positions(0)} - set(prices)
-    for sym in held:
-        px = await market.last_price(sym)
-        if px:
-            prices[sym] = px
-    paper.snapshot_equity(prices, btc)
+    held = {p["symbol"] for p in paper.positions(0)} - set(marks)
+    if held:
+        marks.update(await market.marks(held))
+    paper.snapshot_equity(marks, btc)
 
 
 # --- daily housekeeping ---

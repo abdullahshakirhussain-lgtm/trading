@@ -28,9 +28,9 @@ def setup_logging() -> None:
 
 async def selftest() -> int:
     """Exercise every data source once. Returns count of failed checks."""
-    from copilot.data import announcements, dexscreener, feargreed, news
+    from copilot.data import announcements, feargreed, news
     from copilot.data.binance import Market
-    from copilot.engine import narrative, rugfilter, scanner
+    from copilot.engine import narrative, scanner
 
     db.init()
     market = Market()
@@ -59,9 +59,17 @@ async def selftest() -> int:
                                       f"{r.get('BTC/USDT:USDT', '?')})")
         _ = rates
 
-        await check("binance movers", market.movers(config.MOVER_MIN_QVOL),
-                    lambda r: f"{len(r)} pairs, top: {r[0]['symbol']} {r[0]['pct24h']:+.1f}%"
+        await check("binance perp movers", market.movers(config.MOVER_MIN_QVOL),
+                    lambda r: f"{len(r)} perps, top: {r[0]['symbol']} {r[0]['pct24h']:+.1f}%"
                               if r else "EMPTY")
+
+        await check("open interest (BTC)", market.open_interest_hist("BTC/USDT:USDT"),
+                    lambda r: f"{len(r)} points, latest ${r[-1]['oi_usd']:,.0f} OI"
+                              if r else "unavailable")
+
+        await check("long/short ratio (BTC)", market.long_short_ratio("BTC/USDT:USDT"),
+                    lambda r: f"{r:.2f} (crowd {'long' if r and r > 1 else 'short'})"
+                              if r else "unavailable")
 
         await check("fear&greed", feargreed.fetch(),
                     lambda r: f"{r['value']} ({r['label']})" if r else "unavailable")
@@ -70,11 +78,11 @@ async def selftest() -> int:
                     lambda r: f"{len(r)} articles, latest: {r[0]['title'][:60]}"
                               if r else "unavailable (CMS geo-blocked? exchangeInfo diff still covers listings)")
 
-        spot = await check("exchangeInfo spot symbols", market.list_symbols("spot"),
-                           lambda r: f"{len(r)} active symbols")
-        _ = spot
+        perps = await check("exchangeInfo perp symbols", market.list_symbols("perp"),
+                            lambda r: f"{len(r)} active perps")
+        _ = perps
 
-        scan_rows = await check("mover scanner (spot+perps)", scanner.scan(market),
+        scan_rows = await check("mover scanner (perps)", scanner.scan(market),
                                 lambda r: f"{sum(1 for x in r if x['verdict'] == 'PASS')} PASS "
                                           f"of {len(r)} candidates")
         if scan_rows:
@@ -87,22 +95,6 @@ async def selftest() -> int:
                 print(f"       [{h['verdict']}] {h['base']:<9} {h['market']:<4} {h['tier']:<5} "
                       f"{_p('mom_5m')}/{_p('mom_15m')}/{_p('mom_1h')} rvol={rv} "
                       f"vol=${h['qvol']:,.0f}{new}")
-
-        candidates = await check("dexscreener trending",
-                                 dexscreener.trending_candidates(config.RADAR_CHAINS),
-                                 lambda r: f"{len(r)} candidates on {'/'.join(config.RADAR_CHAINS)}")
-        if candidates:
-            chain = candidates[0]["chain"]
-            addrs = [c["addr"] for c in candidates if c["chain"] == chain][:10]
-            pairs = await check("dexscreener pair stats", dexscreener.pair_stats(chain, addrs),
-                                lambda r: f"{len(r)} pairs with data")
-            if pairs:
-                print("       radar sample with rug-filter verdicts:")
-                for p in pairs[:5]:
-                    verdict, reasons = rugfilter.evaluate(p)
-                    why = f" — {'; '.join(reasons)}" if reasons else ""
-                    print(f"       [{verdict}] {p['symbol']} liq=${p['liq_usd']:,.0f} "
-                          f"vol24=${p['vol24']:,.0f}{why}")
 
         items = await check("news RSS ingest", news.poll(),
                             lambda r: f"{len(r)} new items stored")

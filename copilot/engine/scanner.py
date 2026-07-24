@@ -157,7 +157,7 @@ def _flags(row: dict) -> list[str]:
 def evaluate(row: dict) -> tuple[str, list[str]]:
     """Quality gate. PASS = worth showing; SKIP = data too thin to mean anything.
 
-    Mirrors rugfilter.evaluate: reasons explain a SKIP rather than hiding it.
+    Like the DEX radar's old gate: reasons explain a SKIP rather than hiding it.
     """
     reasons: list[str] = []
     if (row.get("qvol") or 0) < config.SCAN_MIN_QVOL:
