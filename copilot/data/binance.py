@@ -114,6 +114,47 @@ class Market:
         db.kv_set("last_poll_movers", str(int(time.time())))
         return rows
 
+    # --- explosive-mover scanner ---
+
+    async def scan_universe(self) -> list[dict]:
+        """Every /USDT spot pair and USD-M perp with a 24h ticker, in one row each.
+
+        Two batch calls (spot + perps) cover the whole market — cheap enough to run
+        every couple of minutes. Rows: {symbol, market, price, chg24, qvol, high, low}.
+        """
+        out: list[dict] = []
+        for client, market, suffix in (
+            (self.spot, "spot", "/USDT"),
+            (self.usdm, "perp", "/USDT:USDT"),
+        ):
+            try:
+                tickers = await client.fetch_tickers()
+            except Exception as e:
+                log.warning("scan_universe(%s) failed: %s", market, e)
+                continue
+            for sym, t in tickers.items():
+                if not sym.endswith(suffix):
+                    continue
+                price, qvol = t.get("last"), t.get("quoteVolume")
+                if price is None or qvol is None:
+                    continue
+                out.append({
+                    "symbol": sym, "market": market, "price": price,
+                    "chg24": t.get("percentage"), "qvol": qvol,
+                    "high": t.get("high"), "low": t.get("low"),
+                })
+        return out
+
+    async def ohlcv(self, symbol: str, timeframe: str = "5m", limit: int = 24,
+                    market: str = "spot") -> list[list]:
+        """Recent candles [[ts, o, h, l, c, v], …] from the matching client."""
+        client = self.spot if market == "spot" else self.usdm
+        try:
+            return await client.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+        except Exception as e:
+            log.warning("ohlcv %s (%s) failed: %s", symbol, market, e)
+            return []
+
     # --- listings (new-symbol detection via exchangeInfo diff) ---
 
     async def list_symbols(self, market: str) -> list[str]:

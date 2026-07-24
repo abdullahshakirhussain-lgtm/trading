@@ -58,6 +58,16 @@ CREATE TABLE IF NOT EXISTS positions (
 CREATE TABLE IF NOT EXISTS equity_history (ts INTEGER, equity REAL, btc_bench REAL);
 CREATE TABLE IF NOT EXISTS condition_fires (name TEXT, ts INTEGER);
 CREATE INDEX IF NOT EXISTS idx_cond_fires ON condition_fires(name, ts);
+CREATE TABLE IF NOT EXISTS scan_snapshots (ts INTEGER, market TEXT, symbol TEXT, price REAL, qvol REAL);
+CREATE INDEX IF NOT EXISTS idx_scan_snap ON scan_snapshots(symbol, ts);
+CREATE TABLE IF NOT EXISTS scan_hits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER, market TEXT, symbol TEXT, tier TEXT,
+    mom_5m REAL, mom_15m REAL, mom_1h REAL, rvol REAL,
+    qvol REAL, chg24 REAL, funding REAL, score REAL,
+    verdict TEXT, is_new INTEGER DEFAULT 0, url TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_scan_hits_ts ON scan_hits(ts);
 """
 
 
@@ -133,8 +143,13 @@ def log_alert(kind: str, key: str, message: str) -> None:
 
 def prune(days: int = 45) -> None:
     """Keep the DB small: drop old time-series rows."""
-    cutoff = int(time.time()) - days * 86400
+    now = int(time.time())
+    cutoff = now - days * 86400
     execute("DELETE FROM prices WHERE ts < ?", (cutoff,))
     execute("DELETE FROM funding WHERE ts < ?", (cutoff,))
     execute("DELETE FROM alert_log WHERE ts < ?", (cutoff,))
     execute("DELETE FROM news WHERE ts < ?", (cutoff,))
+    # Scanner data is short-lived: snapshots only feed short-window deltas (~2h
+    # is plenty), hits are a rolling week of history for /hot and the dashboard.
+    execute("DELETE FROM scan_snapshots WHERE ts < ?", (now - 2 * 3600,))
+    execute("DELETE FROM scan_hits WHERE ts < ?", (now - 7 * 86400,))

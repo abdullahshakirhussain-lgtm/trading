@@ -11,7 +11,7 @@ import time
 
 from .. import config, db, fmt
 from ..data import announcements, dexscreener, feargreed, news
-from . import narrative, paper, read, rugfilter
+from . import narrative, paper, read, rugfilter, scanner
 
 log = logging.getLogger(__name__)
 
@@ -217,6 +217,31 @@ async def poll_radar(market, send) -> None:
                              f"<i>Data, not a recommendation — most memes still go to zero.</i>",
                              24 * 3600)
     db.kv_set("last_poll_radar", str(int(time.time())))
+
+
+# --- explosive-mover scanner (small/new-cap day-trading radar) ---
+
+async def poll_scan(market, send) -> None:
+    hits = await scanner.scan(market)
+    now = int(time.time())
+    for r in hits:
+        if not (r["verdict"] == "PASS" and r["push"]):
+            continue
+        key = f"{r['base']}:{r['direction']}"
+        fresh = db.dedup_ok("scan", key, config.COOLDOWN_SCAN)
+        await _alert(send, "scan", key,
+                     scanner.format_hit(r) + "\n" + scanner.DISCLAIMER,
+                     config.COOLDOWN_SCAN)
+        if fresh:  # record only the fired signal, so scan_hits stays a clean feed
+            db.execute(
+                "INSERT INTO scan_hits(ts, market, symbol, tier, mom_5m, mom_15m, mom_1h, "
+                "rvol, qvol, chg24, funding, score, verdict, is_new, url) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (now, r["market"], r["symbol"], r["tier"], r.get("mom_5m"), r.get("mom_15m"),
+                 r.get("mom_1h"), r.get("rvol"), r.get("qvol"), r.get("chg24"),
+                 r.get("funding"), r.get("score"), r["verdict"],
+                 1 if r.get("is_new") else 0, r.get("url")))
+    db.kv_set("last_poll_scan", str(now))
 
 
 # --- named conditions: record transitions, alert on the notable ones ---

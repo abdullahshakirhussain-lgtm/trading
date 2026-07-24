@@ -11,6 +11,11 @@ Runs locally on Windows for ~$0/month.
   changes, big movers, Fear & Greed extremes
 - **Listing radar** — Binance new-listing announcements (polled every 90s;
   minutes-sensitive) + reliable new-symbol detection via exchangeInfo diff
+- **Explosive-mover scanner** — Binance spot **+ USD-M perps** swept every ~2.5 min
+  for small/new-cap coins igniting *now*: short-window momentum (5m/15m/1h) backed by
+  a volume surge (RVOL), tiered micro/small/mid, with fresh listings on a lower bar.
+  This is the layer that catches the ZAMA/UAI-type day-trading movers the majors
+  watchlist and the DEX radar both miss. Pushed to Telegram in real time; `/hot` on demand
 - **Memecoin radar** — DexScreener trending/boosted tokens on Solana + BSC,
   each run through a rug filter (liquidity, age, vol/liq sanity, one-sided flow)
 - **News & narrative heat** — free RSS feeds tagged by narrative; alerts when a
@@ -118,7 +123,7 @@ Creates a "crypto-copilot" task that starts the bot at logon. Remove with
 ## Files
 
 - `copilot/data/` — Binance (ccxt public), DexScreener, announcements, RSS, F&G
-- `copilot/engine/` — alert rules, narrative heat, rug filter, paper trading
+- `copilot/engine/` — alert rules, narrative heat, rug filter, mover scanner, paper trading
 - `copilot/bot/` — Telegram commands + job scheduling
 - `copilot/llm/` — Claude Haiku brief / thesis-check / review (optional)
 - `data/copilot.db` — SQLite (all state; delete to reset)

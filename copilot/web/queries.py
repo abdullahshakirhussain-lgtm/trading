@@ -39,6 +39,7 @@ def overview() -> dict:
             "funding": ago("last_poll_funding"),
             "news": ago("last_poll_news"),
             "radar": ago("last_poll_radar"),
+            "scan": ago("last_poll_scan"),
             "listings": ago("last_poll_announcements"),
         },
         "degen_cap_pct": config.DEGEN_CAP * 100,
@@ -86,6 +87,20 @@ def radar(hours: int = 48) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def hot_movers(hours: int = 24) -> list[dict]:
+    """Explosive-mover scanner hits that fired recently, latest row per symbol."""
+    rows = db.fetchall(
+        "SELECT * FROM scan_hits WHERE ts > ? ORDER BY ts DESC",
+        (int(time.time()) - hours * 3600,))
+    seen, out = set(), []
+    for r in rows:
+        if r["symbol"] in seen:
+            continue
+        seen.add(r["symbol"])
+        out.append(dict(r))
+    return out[:30]
+
+
 def heat() -> list[dict]:
     return [h for h in narrative.heat() if h["count24h"] > 0]
 
@@ -127,6 +142,7 @@ def snapshot() -> dict:
         "equity_curve": equity_curve(),
         "positions": positions(),
         "trades": trades(),
+        "hot": hot_movers(),
         "radar": radar(),
         "heat": heat(),
         "news": news(),

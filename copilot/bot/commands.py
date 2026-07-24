@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 from .. import config, db, fmt
 from ..data import feargreed
 from ..data.binance import norm_symbol
-from ..engine import narrative, paper, read
+from ..engine import narrative, paper, read, scanner
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ HELP = """<b>crypto co-pilot</b> — alerts &amp; analysis only, never execution
 /read — what funding, sentiment &amp; vol currently imply
 
 <b>Radar &amp; news</b>
+/hot [micro|small|mid] — small/new-cap coins moving right now
 /radar — memecoin radar with rug-filter verdicts
 /news [N] — latest headlines
 /heat — narrative heat (what's accelerating)
@@ -280,6 +281,29 @@ async def read_cmd(update: Update, context) -> None:
     lines.append("\n<i>Descriptive only. None of these are backtested, and none "
                  "of them tell you to buy or sell.</i>")
     await _reply(update, "\n".join(lines))
+
+
+@handler
+async def hot(update: Update, context) -> None:
+    """Live scan for small/new-cap coins igniting right now (spot + perps)."""
+    tier_filter = None
+    if context.args and context.args[0].lower() in ("micro", "small", "mid"):
+        tier_filter = context.args[0].lower()
+    await update.message.reply_text("🔎 Scanning spot + perps for movers…")
+    hits = await scanner.scan(_market(context))
+    passed = [h for h in hits if h["verdict"] == "PASS"]
+    if tier_filter:
+        passed = [h for h in passed if h["tier"] == tier_filter]
+    if not passed:
+        where = f" in the {tier_filter} tier" if tier_filter else ""
+        await _reply(update, f"Nothing igniting right now{where}. Either the market's "
+                     "quiet or nothing clears the thresholds — try again shortly. "
+                     "(A fresh start needs a few minutes of snapshots before "
+                     "short-window momentum kicks in.)")
+        return
+    header = "<b>🔥 Hot movers</b>" + (f" · {fmt.esc(tier_filter)} tier" if tier_filter else "")
+    blocks = [scanner.format_hit(h) for h in passed[:10]]
+    await _reply(update, header + "\n\n" + "\n\n".join(blocks) + "\n\n" + scanner.DISCLAIMER)
 
 
 @handler

@@ -76,12 +76,57 @@ SLIPPAGE_CORE = _f("SLIPPAGE_CORE", 0.0005)    # majors
 SLIPPAGE_DEGEN = _f("SLIPPAGE_DEGEN", 0.01)    # low-liquidity memes: 1%
 DEGEN_CAP = _f("DEGEN_CAP", 0.20)              # max share of equity in degen cost basis
 
+# --- Explosive-mover scanner (small/new-cap day-trading radar) ---
+# Scans Binance spot + USD-M perps for igniting moves the majors watchlist and
+# the DEX radar both miss. Keyless. Two stages: a cheap market-wide ticker screen,
+# then OHLCV confirmation on the candidates. See engine/scanner.py.
+SCAN_INTERVAL = _i("SCAN_INTERVAL", 150)          # seconds between full scans (~2.5m)
+SCAN_SHORT_WINDOW_S = _i("SCAN_SHORT_WINDOW_S", 300)  # short-window delta target (5m)
+SCAN_CANDIDATE_CAP = _i("SCAN_CANDIDATE_CAP", 20)  # max OHLCV lookups per scan (rate limit)
+SCAN_RVOL = _f("SCAN_RVOL", 3.0)                   # latest 5m volume vs trailing median
+
+# Universe: tradability floor + tier bands, by 24h quote volume (USD). Above
+# SCAN_MID_MAX a coin is mainstream and left to the watchlist; below the floor
+# it's untradeable. Tier is a label only — all tiers are scanned and flagged.
+SCAN_MIN_QVOL = _f("SCAN_MIN_QVOL", 500_000)       # micro lower bound / hard floor
+SCAN_SMALL_MIN = _f("SCAN_SMALL_MIN", 15_000_000)  # micro -> small boundary
+SCAN_MID_MIN = _f("SCAN_MID_MIN", 75_000_000)      # small -> mid boundary
+# Upper guard only drops true mega-caps that slipped the name exclude list. Set high
+# on purpose: a viral small-cap on its explosive day can spike past $500M of volume —
+# that's exactly when we want it — while BTC/ETH-scale coins sit in the billions.
+SCAN_MID_MAX = _f("SCAN_MID_MAX", 3_000_000_000)
+
+# Per-tier trigger thresholds. Micro moves more, so it needs a bigger jump to matter;
+# mid is heavier and a smaller move is already notable. Aggressive defaults.
+SCAN_MOM_5M = {"micro": _f("SCAN_MOM_5M_MICRO", 4.0),
+               "small": _f("SCAN_MOM_5M_SMALL", 3.0),
+               "mid":   _f("SCAN_MOM_5M_MID", 2.0)}      # % over ~5 min
+SCAN_MOM_15M = {"micro": _f("SCAN_MOM_15M_MICRO", 8.0),
+                "small": _f("SCAN_MOM_15M_SMALL", 6.0),
+                "mid":   _f("SCAN_MOM_15M_MID", 4.0)}     # % over ~15 min
+SCAN_CHG24 = {"micro": _f("SCAN_CHG24_MICRO", 25.0),
+              "small": _f("SCAN_CHG24_SMALL", 20.0),
+              "mid":   _f("SCAN_CHG24_MID", 15.0)}        # 24h % fallback trigger
+
+# Fresh listings move hardest — they trigger at a fraction of the usual bar.
+SCAN_NEW_LISTING_BOOST_H = _f("SCAN_NEW_LISTING_BOOST_H", 72)
+SCAN_NEW_LISTING_FACTOR = _f("SCAN_NEW_LISTING_FACTOR", 0.6)
+
+# Bases never worth scanning: majors (belong on the watchlist) and stablecoins.
+# Leveraged tokens (…UP/DOWN, 3L/3S, BULL/BEAR) are pattern-matched in the scanner.
+SCAN_EXCLUDE_BASES = set(b.strip().upper() for b in os.getenv(
+    "SCAN_EXCLUDE_BASES",
+    "BTC,ETH,BNB,SOL,XRP,DOGE,ADA,TRX,AVAX,LINK,DOT,LTC,BCH,MATIC,"
+    "USDC,FDUSD,TUSD,DAI,USDP,USDD,EUR,USD1"
+).split(",") if b.strip())
+
 # --- Alert dedup cooldowns (seconds) ---
 COOLDOWN_FUNDING = _i("COOLDOWN_FUNDING", 8 * 3600)
 COOLDOWN_MOVER = _i("COOLDOWN_MOVER", 12 * 3600)
 COOLDOWN_VOL = _i("COOLDOWN_VOL", 12 * 3600)
 COOLDOWN_FNG = _i("COOLDOWN_FNG", 12 * 3600)
 COOLDOWN_HEAT = _i("COOLDOWN_HEAT", 12 * 3600)
+COOLDOWN_SCAN = _i("COOLDOWN_SCAN", 2 * 3600)  # per symbol+direction; aggressive = short
 
 # --- News feeds (all free) ---
 NEWS_FEEDS = {

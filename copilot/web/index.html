@@ -157,6 +157,11 @@
 </div>
 
 <div class="card">
+  <h2>Hot movers — small/new-cap coins that fired (24h)</h2>
+  <div class="scroll" id="hot"></div>
+</div>
+
+<div class="card">
   <h2>Memecoin radar — data, not recommendations</h2>
   <div class="scroll" id="radar"></div>
 </div>
@@ -233,7 +238,7 @@ function tiles(o) {
 
 function freshness(f) {
   const rows = [["prices", f.prices], ["funding", f.funding], ["news", f.news],
-                ["radar", f.radar], ["listings", f.listings]];
+                ["radar", f.radar], ["scan", f.scan], ["listings", f.listings]];
   $("freshness").innerHTML = rows.map(([k, v]) => {
     const stale = v == null || v > 60;
     const color = v == null ? "var(--muted)" : stale ? "var(--warning)" : "var(--good)";
@@ -404,6 +409,23 @@ function render(d) {
       : `<span class="${Math.abs(r.funding) >= 0.0005 ? "down" : ""}">${
         (r.funding * 100).toFixed(4)}%</span>`},
   ], d.watchlist, "Watchlist is empty.");
+
+  table("hot", [
+    {h: "", f: r => `<span class="badge b-${r.market === "perp" ? "degen" : "core"}">${
+      esc(r.tier)}</span>${r.is_new ? ' <span class="badge b-pass">NEW</span>' : ""}`},
+    {h: "Coin", f: r => { const b = String(r.symbol).split("/")[0];
+      return r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${
+        esc(b)}</a>` : esc(b); }},
+    {h: "Mkt", f: r => esc(r.market)},
+    {h: "5m", num: true, f: r => `<span class="${cls(r.mom_5m)}">${fmtPct(r.mom_5m)}</span>`},
+    {h: "15m", num: true, f: r => `<span class="${cls(r.mom_15m)}">${fmtPct(r.mom_15m)}</span>`},
+    {h: "1h", num: true, f: r => `<span class="${cls(r.mom_1h)}">${fmtPct(r.mom_1h)}</span>`},
+    {h: "RVOL", num: true, f: r => r.rvol == null ? "—" : r.rvol.toFixed(1) + "x"},
+    {h: "24h", num: true, f: r => `<span class="${cls(r.chg24)}">${fmtPct(r.chg24)}</span>`},
+    {h: "Vol 24h", num: true, f: r => fmtCompact(r.qvol)},
+    {h: "Fired", f: r => `<span class="tag">${ago(r.ts)}</span>`},
+  ], d.hot, "No explosive movers fired in the last 24h — the scanner pushes these to "
+     + "Telegram in real time; this table backfills as they fire.");
 
   table("radar", [
     {h: "", f: r => `<span class="badge b-${r.verdict === "PASS" ? "pass" : "skip"}">${

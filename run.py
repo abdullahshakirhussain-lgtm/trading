@@ -30,7 +30,7 @@ async def selftest() -> int:
     """Exercise every data source once. Returns count of failed checks."""
     from copilot.data import announcements, dexscreener, feargreed, news
     from copilot.data.binance import Market
-    from copilot.engine import narrative, rugfilter
+    from copilot.engine import narrative, rugfilter, scanner
 
     db.init()
     market = Market()
@@ -73,6 +73,20 @@ async def selftest() -> int:
         spot = await check("exchangeInfo spot symbols", market.list_symbols("spot"),
                            lambda r: f"{len(r)} active symbols")
         _ = spot
+
+        scan_rows = await check("mover scanner (spot+perps)", scanner.scan(market),
+                                lambda r: f"{sum(1 for x in r if x['verdict'] == 'PASS')} PASS "
+                                          f"of {len(r)} candidates")
+        if scan_rows:
+            print("       top movers (tier · 5m/15m/1h · rvol · verdict):")
+            for h in sorted(scan_rows, key=lambda x: x["score"], reverse=True)[:6]:
+                def _p(k, _h=h):
+                    return f"{_h[k]:+.1f}%" if _h.get(k) is not None else "—"
+                rv = f"{h['rvol']:.1f}x" if h.get("rvol") is not None else "—"
+                new = " NEW" if h.get("is_new") else ""
+                print(f"       [{h['verdict']}] {h['base']:<9} {h['market']:<4} {h['tier']:<5} "
+                      f"{_p('mom_5m')}/{_p('mom_15m')}/{_p('mom_1h')} rvol={rv} "
+                      f"vol=${h['qvol']:,.0f}{new}")
 
         candidates = await check("dexscreener trending",
                                  dexscreener.trending_candidates(config.RADAR_CHAINS),
