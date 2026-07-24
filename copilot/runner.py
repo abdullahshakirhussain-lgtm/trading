@@ -24,23 +24,54 @@ async def _serve_web() -> None:
     await server.serve()
 
 
-async def _main() -> None:
-    bot = build()
-    await bot.initialize()
-    await bot.start()
-    await bot.updater.start_polling(allowed_updates=["message"])
-    # post_init/post_shutdown are only invoked by run_polling(), so this path
-    # has to do their work itself.
-    await notify_online(bot)
-    log.info("co-pilot running (bot + dashboard)")
+def _startup_report() -> None:
+    """Say plainly what is and isn't configured — a silent misconfig on a remote
+    host is near-impossible to diagnose from a failed healthcheck alone."""
+    log.info("config: PORT=%s DATA_DIR=%s", config.PORT, config.DATA_DIR)
+    for name, present, effect in (
+        ("TELEGRAM_BOT_TOKEN", bool(config.TELEGRAM_BOT_TOKEN), "no alerts, no commands"),
+        ("WEB_PASSWORD", bool(config.WEB_PASSWORD), "dashboard refuses all requests"),
+        ("ANTHROPIC_API_KEY", bool(config.ANTHROPIC_API_KEY), "/brief /check /review disabled"),
+    ):
+        log.info("config: %-19s %s%s", name, "set" if present else "MISSING",
+                 "" if present else f" -> {effect}")
+
+
+async def _start_bot():
+    """Start the bot. Never lets a bot failure take down the web server."""
     try:
-        await _serve_web()          # blocks until the server stops
+        bot = build()
+        await bot.initialize()
+        await bot.start()
+        await bot.updater.start_polling(allowed_updates=["message"])
+        # post_init/post_shutdown only run under run_polling(), so do their work here.
+        await notify_online(bot)
+        log.info("telegram bot polling")
+        return bot
+    except (Exception, SystemExit):
+        log.exception("BOT FAILED TO START - dashboard stays up, but no alerts "
+                      "will be sent. Check TELEGRAM_BOT_TOKEN.")
+        return None
+
+
+async def _main() -> None:
+    _startup_report()
+    # Web server first: the healthcheck and dashboard must not depend on Telegram.
+    # Starting the bot first meant a bad token produced a container that never
+    # bound a port, which reads as an opaque "healthcheck failed" on Railway.
+    web_task = asyncio.create_task(_serve_web())
+    await asyncio.sleep(0)          # let uvicorn bind before anything can block
+    bot = await _start_bot()
+    log.info("co-pilot running (dashboard%s)", " + bot" if bot else ", NO BOT")
+    try:
+        await web_task              # blocks until the server stops
     finally:
         log.info("shutting down")
-        await bot.updater.stop()
-        await bot.stop()
-        await bot.shutdown()
-        await close_market(bot)
+        if bot:
+            await bot.updater.stop()
+            await bot.stop()
+            await bot.shutdown()
+            await close_market(bot)
 
 
 def run_all() -> None:
