@@ -1,6 +1,9 @@
+# Leading slashes anchor these to the repo root. Without them, "data/" also
+# matched copilot/data/ and silently excluded the entire data layer from the
+# repo — the image built fine and the container died on ModuleNotFoundError.
+/data/
+/logs/
+/.venv/
 .env
-.venv/
-data/
-logs/
 __pycache__/
 *.pyc

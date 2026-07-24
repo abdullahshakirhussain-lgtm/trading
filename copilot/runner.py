@@ -9,7 +9,7 @@ import logging
 
 import uvicorn
 
-from . import config
+from . import config, db
 from .bot.app import build, close_market, notify_online
 
 log = logging.getLogger(__name__)
@@ -56,6 +56,10 @@ async def _start_bot():
 
 async def _main() -> None:
     _startup_report()
+    # Open the DB here, not only inside build(): build() raises on a missing
+    # token before it gets to db.init(), which left the dashboard querying a
+    # None connection. init() is idempotent, so build() calling it again is fine.
+    db.init()
     # Web server first: the healthcheck and dashboard must not depend on Telegram.
     # Starting the bot first meant a bad token produced a container that never
     # bound a port, which reads as an opaque "healthcheck failed" on Railway.
