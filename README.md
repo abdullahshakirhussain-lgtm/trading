@@ -81,8 +81,16 @@ Then in the Railway dashboard:
    | `BRIEF_HOUR` | `8` |
 
 3. **Generate a domain** (Settings → Networking). That URL is your dashboard.
-4. Keep replicas at **1** — two containers means two Telegram pollers fighting
-   and two writers on one SQLite file. `railway.json` pins this already.
+4. **Region must not be US.** Binance returns `451 Service unavailable from a
+   restricted location` to US IPs, which kills prices, funding, movers and
+   listing detection while everything else keeps working — a confusing
+   half-dead deploy. Use `europe-west4` (Amsterdam). Set it in Settings →
+   Scale; `railway.json` deliberately does not pin region or replicas so the
+   UI stays authoritative.
+5. Keep replicas at **1** (Railway's default) — two containers means two
+   Telegram pollers fighting and two writers on one SQLite file.
+6. **The volume is region-bound.** Changing region later means recreating it
+   and losing the database, so pick the region before accumulating a record.
 
 Health check is `/healthz` (unauthenticated, exposes no data). Everything else
 requires the password.
