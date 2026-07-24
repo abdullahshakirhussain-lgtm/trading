@@ -4,6 +4,7 @@ Every job takes (market, send) — `send` is an async callable(text) wired to
 Telegram by the bot layer, or print() in selftest mode. All alerts dedup
 through db.dedup_ok so a persistent condition doesn't spam.
 """
+import json
 import logging
 import math
 import statistics
@@ -224,6 +225,9 @@ async def poll_radar(market, send) -> None:
 async def poll_scan(market, send) -> None:
     hits = await scanner.scan(market)
     now = int(time.time())
+    # Replace the live board each cycle so the dashboard reflects the current scan,
+    # not just the sparse cooldown-gated alert feed.
+    db.kv_set("scan_live", json.dumps(scanner.live_payload(hits)))
     for r in hits:
         if not (r["verdict"] == "PASS" and r["push"]):
             continue

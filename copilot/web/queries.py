@@ -1,4 +1,5 @@
 """Read-only queries backing the dashboard. Never writes — the bot owns writes."""
+import json
 import time
 
 from .. import config, db
@@ -87,18 +88,16 @@ def radar(hours: int = 48) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def hot_movers(hours: int = 24) -> list[dict]:
-    """Explosive-mover scanner hits that fired recently, latest row per symbol."""
-    rows = db.fetchall(
-        "SELECT * FROM scan_hits WHERE ts > ? ORDER BY ts DESC",
-        (int(time.time()) - hours * 3600,))
-    seen, out = set(), []
-    for r in rows:
-        if r["symbol"] in seen:
-            continue
-        seen.add(r["symbol"])
-        out.append(dict(r))
-    return out[:30]
+def hot_movers() -> list[dict]:
+    """Live board: the current scan's top movers, refreshed every scan cycle by
+    poll_scan (kv 'scan_live'). Not the sparse fired-alert feed — this stays current."""
+    raw = db.kv_get("scan_live")
+    if not raw:
+        return []
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return []
 
 
 def heat() -> list[dict]:

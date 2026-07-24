@@ -157,7 +157,7 @@
 </div>
 
 <div class="card">
-  <h2>Hot movers — small/new-cap coins that fired (24h)</h2>
+  <h2>Hot movers — live scan · small/new-cap (spot + perps)</h2>
   <div class="scroll" id="hot"></div>
 </div>
 
@@ -423,9 +423,9 @@ function render(d) {
     {h: "RVOL", num: true, f: r => r.rvol == null ? "—" : r.rvol.toFixed(1) + "x"},
     {h: "24h", num: true, f: r => `<span class="${cls(r.chg24)}">${fmtPct(r.chg24)}</span>`},
     {h: "Vol 24h", num: true, f: r => fmtCompact(r.qvol)},
-    {h: "Fired", f: r => `<span class="tag">${ago(r.ts)}</span>`},
-  ], d.hot, "No explosive movers fired in the last 24h — the scanner pushes these to "
-     + "Telegram in real time; this table backfills as they fire.");
+    {h: "Score", num: true, f: r => r.score == null ? "—" : r.score.toFixed(1)},
+  ], d.hot, "Scanner board is empty right now — it refreshes every scan cycle "
+     + "(~2.5 min) and needs a couple of minutes of warm-up after a redeploy.");
 
   table("radar", [
     {h: "", f: r => `<span class="badge b-${r.verdict === "PASS" ? "pass" : "skip"}">${

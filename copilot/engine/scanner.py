@@ -221,6 +221,30 @@ def format_hit(row: dict) -> str:
     return "\n".join(lines)
 
 
+def live_payload(hits: list[dict], limit: int = 30) -> list[dict]:
+    """Serializable snapshot of the current top PASS movers for the dashboard board.
+
+    Unlike scan_hits (a sparse feed of *fired* alerts, gated by the 2h cooldown),
+    this is the live picture every scan cycle — so the dashboard stays current.
+    `hits` is already ranked PASS-first, score-desc by scan().
+    """
+    out = []
+    for r in hits:
+        if r["verdict"] != "PASS":
+            continue
+        out.append({
+            "ts": int(time.time()), "market": r["market"], "symbol": r["symbol"],
+            "base": r["base"], "tier": r["tier"], "is_new": 1 if r.get("is_new") else 0,
+            "url": r.get("url"), "score": r.get("score"),
+            "mom_5m": r.get("mom_5m"), "mom_15m": r.get("mom_15m"),
+            "mom_1h": r.get("mom_1h"), "rvol": r.get("rvol"),
+            "chg24": r.get("chg24"), "qvol": r.get("qvol"), "funding": r.get("funding"),
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 # --- orchestration -------------------------------------------------------
 
 async def scan(market) -> list[dict]:
